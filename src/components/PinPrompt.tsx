@@ -1,14 +1,28 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   onSubmit: (pin: string) => void;
+  title?: string;
+  subtitle?: string;
+  confirmLabel?: string;
 };
 
-export function PinPrompt({ visible, onClose, onSubmit }: Props) {
+export function PinPrompt({
+  visible,
+  onClose,
+  onSubmit,
+  title = 'Admin PIN',
+  subtitle = 'Syötä 4-numeroinen PIN',
+  confirmLabel = 'Avaa',
+}: Props) {
   const [pin, setPin] = useState('');
+
+  useEffect(() => {
+    if (!visible) setPin('');
+  }, [visible]);
 
   const masked = useMemo(() => '•'.repeat(pin.length), [pin.length]);
 
@@ -16,8 +30,8 @@ export function PinPrompt({ visible, onClose, onSubmit }: Props) {
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>Admin PIN</Text>
-          <Text style={styles.subtitle}>Syötä 4-numeroinen PIN</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           <TextInput
             value={pin}
@@ -38,7 +52,7 @@ export function PinPrompt({ visible, onClose, onSubmit }: Props) {
               }}
               style={[styles.btn, pin.length === 4 ? styles.btnPrimary : styles.btnDisabled]}
             >
-              <Text style={styles.btnPrimaryText}>Avaa</Text>
+              <Text style={styles.btnPrimaryText}>{confirmLabel}</Text>
             </Pressable>
           </View>
         </View>

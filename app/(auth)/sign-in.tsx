@@ -6,6 +6,7 @@ import { useSessionStore } from '../../src/state/useSessionStore';
 
 export default function SignInScreen() {
   const session = useSessionStore((s) => s.session);
+  const envMissing = useSessionStore((s) => s.envMissing);
   const signInWithPassword = useSessionStore((s) => s.signInWithPassword);
   const signUpWithPassword = useSessionStore((s) => s.signUpWithPassword);
 
@@ -14,6 +15,20 @@ export default function SignInScreen() {
   const [busy, setBusy] = useState(false);
 
   if (session) return <Redirect href="/(app)" />;
+
+  if (envMissing) {
+    return (
+      <View style={styles.root}>
+        <Text style={styles.title}>Leikkitsemppari</Text>
+        <Text style={styles.subtitle}>Supabase puuttuu</Text>
+        <Text style={{ opacity: 0.75, lineHeight: 20 }}>
+          Luo tiedosto mobile/.env ja lisää:
+          {'\n'}EXPO_PUBLIC_SUPABASE_URL
+          {'\n'}EXPO_PUBLIC_SUPABASE_ANON_KEY
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>

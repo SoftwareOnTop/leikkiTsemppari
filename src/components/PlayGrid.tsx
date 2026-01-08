@@ -138,7 +138,7 @@ export function PlayGrid({
   const renderCell = useCallback(
     (rowChildId: string, colChildId: string) => {
       if (rowChildId === colChildId) {
-        return <View style={[styles.cell, { width: cellSize, height: cellSize }]} />;
+        return <View key={`${rowChildId}:${colChildId}`} style={[styles.cell, { width: cellSize, height: cellSize }]} />;
       }
 
       const key = pairKey(rowChildId, colChildId);

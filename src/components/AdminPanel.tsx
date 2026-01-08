@@ -2,9 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAppDataStore } from '../state/useAppDataStore';
+import { PinPrompt } from './PinPrompt';
 
 export function AdminPanel({ onClose }: { onClose?: () => void }) {
-  const { children, games, upsertChild, deleteChild, upsertGame, deleteGame, resetGrid } = useAppDataStore();
+  const { children, games, pinCode, updatePinCode, upsertChild, deleteChild, upsertGame, deleteGame, resetGrid } =
+    useAppDataStore();
 
   const [newChildName, setNewChildName] = useState('');
   const [newGameName, setNewGameName] = useState('');
@@ -13,6 +15,7 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
 
   const [childEdits, setChildEdits] = useState<Record<string, string>>({});
   const [gameEdits, setGameEdits] = useState<Record<string, { name: string; emoji: string; color: string }>>({});
+  const [pinModalVisible, setPinModalVisible] = useState(false);
 
   const sortedChildren = useMemo(() => [...children].sort((a, b) => a.name.localeCompare(b.name)), [children]);
   const sortedGames = useMemo(() => [...games].sort((a, b) => a.name.localeCompare(b.name)), [games]);
@@ -212,11 +215,38 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
         </Pressable>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.h2}>Admin PIN</Text>
+        <Text style={styles.label}>
+          {pinCode ? 'PIN on asetettu.' : 'PIN ei ole asetettu. Oletus-PIN: 1234.'}
+        </Text>
+        <Pressable style={[styles.btn, styles.btnPrimary, { alignSelf: 'flex-start' }]} onPress={() => setPinModalVisible(true)}>
+          <Text style={styles.btnPrimaryText}>{pinCode ? 'Vaihda PIN' : 'Aseta PIN'}</Text>
+        </Pressable>
+      </View>
+
       {onClose ? (
         <Pressable style={[styles.btn, styles.btnGhost]} onPress={onClose}>
           <Text style={styles.btnGhostText}>Sulje</Text>
         </Pressable>
       ) : null}
+
+      <PinPrompt
+        visible={pinModalVisible}
+        onClose={() => setPinModalVisible(false)}
+        title={pinCode ? 'Vaihda PIN' : 'Aseta PIN'}
+        subtitle="Syötä uusi 4-numeroinen PIN"
+        confirmLabel="Tallenna"
+        onSubmit={async (pin) => {
+          try {
+            await updatePinCode(pin);
+            setPinModalVisible(false);
+            Alert.alert('PIN vaihdettu', 'Uusi PIN on tallennettu.');
+          } catch (e: any) {
+            Alert.alert('PINin vaihto epäonnistui', e?.message ?? 'Tuntematon virhe');
+          }
+        }}
+      />
     </ScrollView>
   );
 }

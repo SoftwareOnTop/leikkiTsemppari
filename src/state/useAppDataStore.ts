@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { supabase } from '../lib/supabase';
+import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Child, Game, PlaySession } from './usePlayGridStore';
 
 type AppDataState = {
@@ -20,6 +20,8 @@ type AppDataState = {
 
   addPlaySession: (args: { childAId: string; childBId: string; gameId: string }) => Promise<void>;
   resetGrid: () => Promise<void>;
+
+  updatePinCode: (newPin: string) => Promise<void>;
 };
 
 export const useAppDataStore = create<AppDataState>((set, get) => ({
@@ -32,6 +34,13 @@ export const useAppDataStore = create<AppDataState>((set, get) => ({
 
   refreshAll: async () => {
     set({ loading: true });
+
+    if (!isSupabaseConfigured) {
+      set({ loading: false, children: [], games: [], sessions: [], pinCode: null });
+      return;
+    }
+
+    const supabase = getSupabase();
 
     const {
       data: { user },
@@ -62,6 +71,12 @@ export const useAppDataStore = create<AppDataState>((set, get) => ({
   },
 
   upsertChild: async ({ id, name }) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const payload = id ? { id, name } : { name };
     const { error } = await supabase.from('children').upsert(payload).select().maybeSingle();
     if (error) throw error;
@@ -69,12 +84,24 @@ export const useAppDataStore = create<AppDataState>((set, get) => ({
   },
 
   deleteChild: async (id) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const { error } = await supabase.from('children').delete().eq('id', id);
     if (error) throw error;
     await get().refreshAll();
   },
 
   upsertGame: async ({ id, name, emoji, color }) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const payload = id ? { id, name, emoji, color } : { name, emoji, color };
     const { error } = await supabase.from('games').upsert(payload).select().maybeSingle();
     if (error) throw error;
@@ -82,12 +109,24 @@ export const useAppDataStore = create<AppDataState>((set, get) => ({
   },
 
   deleteGame: async (id) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const { error } = await supabase.from('games').delete().eq('id', id);
     if (error) throw error;
     await get().refreshAll();
   },
 
   addPlaySession: async ({ childAId, childBId, gameId }) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const { error } = await supabase
       .from('play_sessions')
       .insert({ child_a_id: childAId, child_b_id: childBId, game_id: gameId })
@@ -98,8 +137,37 @@ export const useAppDataStore = create<AppDataState>((set, get) => ({
   },
 
   resetGrid: async () => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+    const supabase = getSupabase();
     const { error } = await supabase.from('play_sessions').delete().gte('created_at', '1970-01-01T00:00:00Z');
     if (error) throw error;
     await get().refreshAll();
+  },
+
+  updatePinCode: async (newPin) => {
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Missing Supabase env vars. Create mobile/.env with EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+
+    const pin = newPin.replace(/\D/g, '').slice(0, 4);
+    if (pin.length !== 4) throw new Error('PIN pitää olla 4 numeroa.');
+
+    const supabase = getSupabase();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) throw new Error('Ei kirjautunutta käyttäjää.');
+
+    const { error } = await supabase.from('profiles').update({ pin_code: pin }).eq('id', user.id);
+    if (error) throw error;
+
+    set({ pinCode: pin });
   },
 }));
