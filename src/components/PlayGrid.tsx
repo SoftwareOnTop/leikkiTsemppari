@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -7,16 +7,23 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
+  findNodeHandle,
   useWindowDimensions,
   View,
 } from 'react-native';
+import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import type { Child, Game, PlaySession } from '../state/usePlayGridStore';
+import type { PairAssignment } from '../state/useAppDataStore';
+import { useDragStore } from '../state/useDragStore';
 
 type Props = {
-  children: Child[];
+  rowChildren: Child[];
+  colChildren: Child[];
   games: Game[];
   sessions: PlaySession[];
+  assignments?: PairAssignment[];
   selectedGameId: string | null;
   onCellPress?: (args: { rowChildId: string; colChildId: string; gameId: string }) => void;
   headerTitle?: string;
@@ -42,9 +49,11 @@ function withAlpha(color: string, alpha01: number): string {
 const CELL_MIN_DP = 44;
 
 export function PlayGrid({
-  children,
+  rowChildren,
+  colChildren,
   games,
   sessions,
+  assignments = [],
   selectedGameId,
   onCellPress,
   headerTitle = 'Leikkiruudukko',
@@ -57,32 +66,22 @@ export function PlayGrid({
   const targetVisibleCols = isTablet ? 10 : 6;
 
   const cellSize = useMemo(() => {
-    const columns = Math.max(1, Math.min(children.length, targetVisibleCols));
+    const columns = Math.max(1, Math.min(colChildren.length, targetVisibleCols));
     const approx = Math.floor((usableWidth - 120) / (columns + 1));
     return Math.max(CELL_MIN_DP, approx);
-  }, [children.length, targetVisibleCols, usableWidth]);
+  }, [colChildren.length, targetVisibleCols, usableWidth]);
 
   const headerSize = useMemo(() => Math.max(96, Math.floor(cellSize * 1.6)), [cellSize]);
 
   const gamesById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
 
-  const pairCounts = useMemo(() => {
-    const map = new Map<PairKey, number>();
-    for (const s of sessions) {
-      const key = pairKey(s.child_a_id, s.child_b_id);
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return map;
-  }, [sessions]);
-
-  const pairTopGame = useMemo(() => {
+  const assignmentByPair = useMemo(() => {
     const map = new Map<PairKey, string>();
-    for (const s of sessions) {
-      const key = pairKey(s.child_a_id, s.child_b_id);
-      if (!map.has(key)) map.set(key, s.game_id);
+    for (const a of assignments) {
+      map.set(pairKey(a.child_a_id, a.child_b_id), a.game_id);
     }
     return map;
-  }, [sessions]);
+  }, [assignments]);
 
   const topHeaderRef = useRef<ScrollView>(null);
   const leftHeaderRef = useRef<ScrollView>(null);
@@ -91,7 +90,18 @@ export function PlayGrid({
 
   const syncing = useRef({ fromBodyH: false, fromBodyV: false, fromTopH: false, fromLeftV: false });
 
+  const gridFrameRef = useRef<View>(null);
+  const gridFrameWindow = useRef<{ x: number; y: number } | null>(null);
+  const scrollX = useRef(0);
+  const scrollY = useRef(0);
+
   const [scrollEnabled, setScrollEnabled] = useState(true);
+
+  const draggingGameId = useDragStore((s) => s.draggingGameId);
+  const pointer = useDragStore((s) => s.pointer);
+  const hovered = useDragStore((s) => s.hovered);
+  const setHovered = useDragStore((s) => s.setHovered);
+  const clearHovered = useDragStore((s) => s.clearHovered);
 
   const syncTopFromBody = useCallback((x: number) => {
     if (syncing.current.fromTopH) return;
@@ -123,35 +133,74 @@ export function PlayGrid({
 
   const selectedGame = selectedGameId ? gamesById.get(selectedGameId) : undefined;
 
+  const measureGridFrame = useCallback(() => {
+    const node = findNodeHandle(gridFrameRef.current);
+    if (!node) return;
+    UIManager.measureInWindow(node, (x, y) => {
+      gridFrameWindow.current = { x, y };
+    });
+  }, []);
+
+  const computeHover = useCallback(() => {
+    if (!draggingGameId || !pointer) {
+      clearHovered();
+      return;
+    }
+
+    const origin = gridFrameWindow.current;
+    if (!origin) {
+      clearHovered();
+      return;
+    }
+
+    const bodyX = origin.x + headerSize;
+    const bodyY = origin.y + cellSize;
+    const rx = pointer.x - bodyX;
+    const ry = pointer.y - bodyY;
+    if (rx < 0 || ry < 0) {
+      clearHovered();
+      return;
+    }
+
+    const contentX = rx + scrollX.current;
+    const contentY = ry + scrollY.current;
+    const colIndex = Math.floor(contentX / cellSize);
+    const rowIndex = Math.floor(contentY / cellSize);
+
+    if (rowIndex < 0 || colIndex < 0 || rowIndex >= rowChildren.length || colIndex >= colChildren.length) {
+      clearHovered();
+      return;
+    }
+
+    setHovered(rowChildren[rowIndex].id, colChildren[colIndex].id);
+  }, [cellSize, clearHovered, colChildren, draggingGameId, headerSize, pointer, rowChildren, setHovered]);
+
+  useEffect(() => {
+    computeHover();
+  }, [computeHover]);
+
   const handleCellPress = useCallback(
     (rowChildId: string, colChildId: string) => {
       if (!selectedGameId) return;
       if (rowChildId === colChildId) return;
-      const key = pairKey(rowChildId, colChildId);
-      const count = pairCounts.get(key) ?? 0;
-      if (count >= 2) return;
       onCellPress?.({ rowChildId, colChildId, gameId: selectedGameId });
     },
-    [onCellPress, pairCounts, selectedGameId]
+    [onCellPress, selectedGameId]
   );
 
   const renderCell = useCallback(
     (rowChildId: string, colChildId: string) => {
-      if (rowChildId === colChildId) {
-        return <View key={`${rowChildId}:${colChildId}`} style={[styles.cell, { width: cellSize, height: cellSize }]} />;
-      }
 
       const key = pairKey(rowChildId, colChildId);
-      const count = pairCounts.get(key) ?? 0;
-      const topGameId = pairTopGame.get(key);
-      const gameForCell = (topGameId && gamesById.get(topGameId)) || selectedGame;
+      const assignedGameId = assignmentByPair.get(key);
+      const gameForCell = (assignedGameId && gamesById.get(assignedGameId)) || undefined;
 
-      const baseColor = gameForCell?.color ?? '#999999';
-      const bg = count === 0 ? 'transparent' : count === 1 ? withAlpha(baseColor, 0.25) : baseColor;
+      const baseColor = gameForCell?.color ?? 'transparent';
+      const bg = gameForCell ? withAlpha(baseColor, 0.25) : 'transparent';
 
-      const locked = count >= 2;
-      const showDot = count === 1;
-      const showEmoji = count >= 2 && !!gameForCell?.emoji;
+      const showEmoji = !!gameForCell?.emoji;
+
+      const isHover = !!hovered && pairKey(hovered.rowChildId, hovered.colChildId) === key;
 
       return (
         <Pressable
@@ -163,16 +212,26 @@ export function PlayGrid({
               width: cellSize,
               height: cellSize,
               backgroundColor: bg,
-              opacity: locked ? 0.9 : 1,
+              borderWidth: isHover ? 2 : StyleSheet.hairlineWidth,
+              borderColor: isHover ? 'black' : 'rgba(0,0,0,0.12)',
             },
           ]}
         >
-          {showDot ? <View style={styles.dot} /> : null}
-          {showEmoji ? <Text style={styles.emoji}>{gameForCell?.emoji}</Text> : null}
+          {showEmoji ? (
+            <Animated.Text
+              // Key forces re-mount when game changes, so the enter/exit animations run.
+              key={assignedGameId}
+              entering={ZoomIn.duration(140).springify().damping(14)}
+              exiting={ZoomOut.duration(110)}
+              style={styles.emoji}
+            >
+              {gameForCell?.emoji}
+            </Animated.Text>
+          ) : null}
         </Pressable>
       );
     },
-    [cellSize, gamesById, handleCellPress, pairCounts, pairTopGame, selectedGame]
+    [assignmentByPair, cellSize, gamesById, handleCellPress, hovered]
   );
 
   return (
@@ -184,12 +243,20 @@ export function PlayGrid({
         </Text>
       </View>
 
-      <View style={styles.gridFrame}>
+      <View
+        ref={gridFrameRef}
+        style={styles.gridFrame}
+        onLayout={() => {
+          // Measure absolute position so we can hit-test drag pointer.
+          measureGridFrame();
+        }}
+      >
         {/* Left pinned column */}
         <View style={{ width: headerSize }}>
           <View style={[styles.cornerCell, { width: headerSize, height: cellSize }]} />
           <ScrollView
             ref={leftHeaderRef}
+            style={{ flex: 1 }}
             scrollEnabled={scrollEnabled}
             showsVerticalScrollIndicator={false}
             onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) =>
@@ -197,7 +264,7 @@ export function PlayGrid({
             }
             scrollEventThrottle={16}
           >
-            {children.map((c) => (
+            {rowChildren.map((c) => (
               <View
                 key={c.id}
                 style={[styles.headerCell, { width: headerSize, height: cellSize, justifyContent: 'center' }]}
@@ -212,61 +279,72 @@ export function PlayGrid({
 
         {/* Right scrollable area */}
         <View style={{ flex: 1 }}>
-          {/* Top pinned row */}
-          <ScrollView
-            ref={topHeaderRef}
-            horizontal
-            scrollEnabled={scrollEnabled}
-            showsHorizontalScrollIndicator={false}
-            onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) =>
-              syncBodyHFromTop(e.nativeEvent.contentOffset.x)
-            }
-            scrollEventThrottle={16}
-          >
-            <View style={{ flexDirection: 'row' }}>
-              {children.map((c) => (
-                <View key={c.id} style={[styles.headerCell, { width: cellSize, height: cellSize }]}>
-                  <Text style={styles.headerText} numberOfLines={1}>
-                    {c.name}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-
-          {/* Body (2D scroll: horizontal + vertical) */}
-          <ScrollView
-            ref={bodyHRef}
-            horizontal
-            scrollEnabled={scrollEnabled}
-            showsHorizontalScrollIndicator
-            onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) =>
-              syncTopFromBody(e.nativeEvent.contentOffset.x)
-            }
-            scrollEventThrottle={16}
-          >
+          {/* Top pinned row (fixed height so body starts immediately below) */}
+          <View style={{ height: cellSize }}>
             <ScrollView
-              ref={bodyVRef}
+              ref={topHeaderRef}
+              horizontal
               scrollEnabled={scrollEnabled}
-              showsVerticalScrollIndicator
+              showsHorizontalScrollIndicator={false}
               onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) =>
-                syncLeftFromBody(e.nativeEvent.contentOffset.y)
+                syncBodyHFromTop(e.nativeEvent.contentOffset.x)
               }
               scrollEventThrottle={16}
-              onScrollBeginDrag={() => {
-                if (Platform.OS === 'web') return;
-                setScrollEnabled(true);
-              }}
+              style={{ height: cellSize }}
+              contentContainerStyle={{ height: cellSize }}
             >
-              <View style={{ flexDirection: 'column' }}>
-                {children.map((row) => (
-                  <View key={row.id} style={{ flexDirection: 'row' }}>
-                    {children.map((col) => renderCell(row.id, col.id))}
+              <View style={{ flexDirection: 'row' }}>
+                {colChildren.map((c) => (
+                  <View
+                    key={c.id}
+                    style={[styles.headerCell, { width: cellSize, height: cellSize, justifyContent: 'center' }]}
+                  >
+                    <Text style={styles.headerText} numberOfLines={1}>
+                      {c.name}
+                    </Text>
                   </View>
                 ))}
               </View>
             </ScrollView>
-          </ScrollView>
+          </View>
+
+          {/* Body (2D scroll: horizontal + vertical) */}
+          <View style={{ flex: 1 }}>
+            <ScrollView
+              ref={bodyHRef}
+              horizontal
+              scrollEnabled={scrollEnabled}
+              showsHorizontalScrollIndicator
+              onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                scrollX.current = e.nativeEvent.contentOffset.x;
+                syncTopFromBody(e.nativeEvent.contentOffset.x);
+              }}
+              scrollEventThrottle={16}
+            >
+              <ScrollView
+                ref={bodyVRef}
+                scrollEnabled={scrollEnabled}
+                showsVerticalScrollIndicator
+                onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+                  scrollY.current = e.nativeEvent.contentOffset.y;
+                  syncLeftFromBody(e.nativeEvent.contentOffset.y);
+                }}
+                scrollEventThrottle={16}
+                onScrollBeginDrag={() => {
+                  if (Platform.OS === 'web') return;
+                  setScrollEnabled(true);
+                }}
+              >
+                <View style={{ flexDirection: 'column' }}>
+                  {rowChildren.map((row) => (
+                    <View key={row.id} style={{ flexDirection: 'row' }}>
+                      {colChildren.map((col) => renderCell(row.id, col.id))}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            </ScrollView>
+          </View>
         </View>
       </View>
     </View>

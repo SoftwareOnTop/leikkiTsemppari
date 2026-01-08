@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export type Child = {
   id: string;
   name: string;
+  axis: 'row' | 'col';
 };
 
 export type Game = {

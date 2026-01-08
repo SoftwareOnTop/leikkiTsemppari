@@ -5,8 +5,18 @@ import { useAppDataStore } from '../state/useAppDataStore';
 import { PinPrompt } from './PinPrompt';
 
 export function AdminPanel({ onClose }: { onClose?: () => void }) {
-  const { children, games, pinCode, updatePinCode, upsertChild, deleteChild, upsertGame, deleteGame, resetGrid } =
-    useAppDataStore();
+  const {
+    children,
+    games,
+    pinCode,
+    updatePinCode,
+    upsertChild,
+    deleteChild,
+    upsertGame,
+    deleteGame,
+    resetGrid,
+    resetAllChildren,
+  } = useAppDataStore();
 
   const [newChildName, setNewChildName] = useState('');
   const [newGameName, setNewGameName] = useState('');
@@ -17,7 +27,13 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
   const [gameEdits, setGameEdits] = useState<Record<string, { name: string; emoji: string; color: string }>>({});
   const [pinModalVisible, setPinModalVisible] = useState(false);
 
-  const sortedChildren = useMemo(() => [...children].sort((a, b) => a.name.localeCompare(b.name)), [children]);
+  const sortedChildren = useMemo(
+    () =>
+      [...children].sort((a, b) =>
+        a.axis === b.axis ? a.name.localeCompare(b.name) : a.axis === 'row' ? -1 : 1
+      ),
+    [children]
+  );
   const sortedGames = useMemo(() => [...games].sort((a, b) => a.name.localeCompare(b.name)), [games]);
 
   return (
@@ -46,6 +62,9 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
 
         {sortedChildren.map((c) => (
           <View key={c.id} style={styles.itemRow}>
+            <View style={{ width: 58 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', opacity: 0.75 }}>{c.axis === 'row' ? 'Pysty' : 'Vaaka'}</Text>
+            </View>
             <TextInput
               value={childEdits[c.id] ?? c.name}
               onChangeText={(t) => setChildEdits((prev) => ({ ...prev, [c.id]: t }))}
@@ -198,10 +217,10 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
         <Pressable
           style={[styles.btn, styles.btnDanger]}
           onPress={() =>
-            Alert.alert('Nollaa ruudukko?', 'Poistaa kaikki leikkisessiot.', [
+            Alert.alert('Poista leikit ruudukosta?', 'Poistaa kaikki ruutuihin asetetut leikit ja historian.', [
               { text: 'Peruuta', style: 'cancel' },
               {
-                text: 'Nollaa',
+                text: 'Poista',
                 style: 'destructive',
                 onPress: async () => {
                   await resetGrid();
@@ -211,7 +230,26 @@ export function AdminPanel({ onClose }: { onClose?: () => void }) {
             ])
           }
         >
-          <Text style={styles.btnDangerText}>Nollaa (poista sessiot)</Text>
+          <Text style={styles.btnDangerText}>Poista leikit ruudukosta</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.btn, styles.btnDanger]}
+          onPress={() =>
+            Alert.alert('Nollaa nimet ja taulukko?', 'Poistaa kaikki lapset (nimet) ja koko taulukon sisällön.', [
+              { text: 'Peruuta', style: 'cancel' },
+              {
+                text: 'Nollaa',
+                style: 'destructive',
+                onPress: async () => {
+                  await resetAllChildren();
+                  onClose?.();
+                },
+              },
+            ])
+          }
+        >
+          <Text style={styles.btnDangerText}>Nollaa nimet ja taulukko</Text>
         </Pressable>
       </View>
 
